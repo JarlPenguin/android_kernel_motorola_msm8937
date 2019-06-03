@@ -136,6 +136,7 @@
 			regulator-max-microvolt = <1800000>;
 			qcom,init-voltage = <1800000>;
 			status = "okay";
+			regulator-always-on;
 		};
 	};
 
@@ -427,7 +428,7 @@
 				<(10000)     (15000)	(20000)>,
 				<0		0	      0>,
 				<0		0	      0>;
-		qcom,cpr-enable;
+		//qcom,cpr-enable;
 	};
 
 	eldo2_pm8937: eldo2 {
