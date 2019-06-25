@@ -219,7 +219,11 @@ int elevator_init(struct request_queue *q, char *name)
 	}
 
 	if (!e) {
+		#if defined(CONFIG_ZEN_INTERACTIVE) && defined(CONFIG_IOSCHED_BFQ)
+		e = elevator_get("bfq", false);
+		#else
 		e = elevator_get(CONFIG_DEFAULT_IOSCHED, false);
+		#endif
 		if (!e) {
 			printk(KERN_ERR
 				"Default I/O scheduler not found. " \
@@ -810,6 +814,8 @@ int elv_register_queue(struct request_queue *q)
 		}
 		kobject_uevent(&e->kobj, KOBJ_ADD);
 		e->registered = 1;
+		if (e->type->ops.elevator_registered_fn)
+			e->type->ops.elevator_registered_fn(q);
 	}
 	return error;
 }
