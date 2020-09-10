@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -483,7 +483,7 @@ tSmeCmd *smeGetCommandBuffer( tpAniSirGlobal pMac )
         else
         {
            /* Trigger SSR */
-           vos_wlanRestart(VOS_GET_MSG_BUFF_FAILURE);
+           vos_wlanRestart();
         }
     }
 
@@ -898,68 +898,6 @@ static void smeProcessNanReq(tpAniSirGlobal pMac, tSmeCmd *pCommand )
     else
     {
         smsLog(pMac, LOG1, FL("posted WDA_NAN_REQUEST command"));
-    }
-}
-
-/**
- * sme_set_qpower() - Set Qpower
- * @pMac - context handler
- * @enable - uint8 value that needs to be sent to FW
- *
- * The function sends the qpower to firmware received
- * via driver command
- */
-void sme_set_qpower(tpAniSirGlobal pMac, uint8_t enable)
-{
-    tSirMsgQ msgQ;
-    tSirRetStatus retCode = eSIR_SUCCESS;
-
-    vos_mem_zero(&msgQ, sizeof(tSirMsgQ));
-    msgQ.type = WDA_QPOWER;
-    msgQ.reserved = 0;
-    msgQ.bodyval = enable;
-
-    retCode = wdaPostCtrlMsg(pMac, &msgQ);
-    if(eSIR_SUCCESS != retCode)
-    {
-        smsLog(pMac, LOGE,
-           FL("Posting WDA_QPOWER to WDA failed, reason=%X"),
-           retCode);
-    }
-    else
-    {
-        smsLog(pMac, LOG1, FL("posted WDA_QPOWER command"));
-    }
-}
-
-/**
- * sme_set_vowifi_mode() - Set VOWIFI mode
- * @pMac - context handler
- * @enable - boolean value that determines the state
- *
- * The function sends the VOWIFI to firmware received
- * via driver command
- */
-void sme_set_vowifi_mode(tpAniSirGlobal pMac, bool enable)
-{
-    tSirMsgQ msgQ;
-    tSirRetStatus retCode = eSIR_SUCCESS;
-
-    vos_mem_zero(&msgQ, sizeof(tSirMsgQ));
-    msgQ.type = WDA_VOWIFI_MODE;
-    msgQ.reserved = 0;
-    msgQ.bodyval = enable;
-
-    retCode = wdaPostCtrlMsg(pMac, &msgQ);
-    if(eSIR_SUCCESS != retCode)
-    {
-        smsLog(pMac, LOGE,
-           FL("Posting WDA_VOWIFI_MODE to WDA failed, reason=%X"),
-           retCode);
-    }
-    else
-    {
-        smsLog(pMac, LOG1, FL("posted WDA_VOWIFI_MODE command"));
     }
 }
 
@@ -1602,9 +1540,7 @@ eHalStatus sme_Open(tHalHandle hHal)
 
       sme_p2pOpen(pMac);
       smeTraceInit(pMac);
-#ifdef SME_TRACE_RECORD
       sme_register_debug_callback();
-#endif
 
    }while (0);
 
@@ -1970,7 +1906,6 @@ eHalStatus sme_HDDReadyInd(tHalHandle hHal)
 
       Msg.messageType = eWNI_SME_SYS_READY_IND;
       Msg.length      = sizeof( tSirSmeReadyReq );
-      Msg.sme_msg_cb = sme_process_msg_callback;
 
       if (eSIR_FAILURE != uMacPostCtrlMsg( hHal, (tSirMbMsg*)&Msg ))
       {
@@ -2541,30 +2476,6 @@ static VOS_STATUS sme_ecsa_msg_processor(tpAniSirGlobal mac_ctx,
    return VOS_STATUS_SUCCESS;
 }
 
-static bool sme_get_sessionid_from_scan_cmd(tpAniSirGlobal mac,
-    tANI_U32  *session_id)
-{
-    tListElem *entry = NULL;
-    tSmeCmd *command = NULL;
-    bool active_scan = false;
-
-    if (!mac->fScanOffload) {
-        entry = csrLLPeekHead(&mac->sme.smeCmdActiveList, LL_ACCESS_LOCK);
-    } else {
-        entry = csrLLPeekHead(&mac->sme.smeScanCmdActiveList, LL_ACCESS_LOCK);
-    }
-
-    if (entry) {
-        command = GET_BASE_ADDR(entry, tSmeCmd, Link);
-        if (command->command == eSmeCommandScan) {
-            *session_id = command->sessionId;
-            active_scan = true;
-        }
-    }
-
-    return active_scan;
-}
-
 /*--------------------------------------------------------------------------
 
   \brief sme_ProcessMsg() - The main message processor for SME.
@@ -2761,19 +2672,10 @@ eHalStatus sme_ProcessMsg(tHalHandle hHal, vos_msg_t* pMsg)
                 {
                    tSirSmeCoexInd *pSmeCoexInd = (tSirSmeCoexInd *)pMsg->bodyptr;
                    vos_msg_t vosMessage = {0};
-                   tANI_U32 session_id = 0;
-                   bool active_scan;
-                   tANI_U32 nTime = 0;
 
                    if (pSmeCoexInd->coexIndType == SIR_COEX_IND_TYPE_DISABLE_AGGREGATION_IN_2p4)
                    {
-                       pMac->btc.agg_disabled = true;
                        smsLog( pMac, LOG1, FL("SIR_COEX_IND_TYPE_DISABLE_AGGREGATION_IN_2p4"));
-                       active_scan = sme_get_sessionid_from_scan_cmd(pMac,
-                                                                   &session_id);
-                       if (active_scan)
-                           sme_AbortMacScan(hHal, session_id,
-                                            eCSR_SCAN_ABORT_DEFAULT);
                        sme_RequestFullPower(hHal, NULL, NULL, eSME_REASON_OTHER);
                        pMac->isCoexScoIndSet = 1;
                        pMac->scan.fRestartIdleScan = eANI_BOOLEAN_FALSE;
@@ -2784,18 +2686,12 @@ eHalStatus sme_ProcessMsg(tHalHandle hHal, vos_msg_t* pMsg)
                    }
                    else if (pSmeCoexInd->coexIndType == SIR_COEX_IND_TYPE_ENABLE_AGGREGATION_IN_2p4)
                    {
-                       pMac->btc.agg_disabled = false;
                        smsLog( pMac, LOG1, FL("SIR_COEX_IND_TYPE_ENABLE_AGGREGATION_IN_2p4"));
                        pMac->isCoexScoIndSet = 0;
                        sme_RequestBmps(hHal, NULL, NULL);
                        pMac->scan.fRestartIdleScan = eANI_BOOLEAN_TRUE;
                        pMac->scan.fCancelIdleScan = eANI_BOOLEAN_FALSE;
 
-                       if(csrIsAllSessionDisconnected(pMac) &&
-                          !HAL_STATUS_SUCCESS(csrScanTriggerIdleScan(pMac,
-                           &nTime))) {
-                              csrScanStartIdleScanTimer(pMac, nTime);
-                       }
                        /*
                         * If aggregation during SCO is enabled, there is a
                         * possibility for an active BA session. This session
@@ -2882,21 +2778,6 @@ eHalStatus sme_ProcessMsg(tHalHandle hHal, vos_msg_t* pMsg)
                           "(PACKET_COALESCING_FILTER_MATCH_COUNT_RSP), nothing to process");
                 }
                 break;
-          // IKJB42MAIN-1244, Motorola, a19091 - BEGIN
-          case eWNI_SME_SET_V6_MC_FILTER:
-                if(pMsg->bodyptr)
-                {
-                   tSirInvokeV6Filter *invokeV6Filter=(tSirInvokeV6Filter*)(pMsg->bodyptr);
-                   invokeV6Filter->configureFilterFn(invokeV6Filter->pHddAdapter, invokeV6Filter->set, FALSE);
-                   kfree(pMsg->bodyptr);
-                   status = eHAL_STATUS_SUCCESS;
-                }
-                else
-                {
-                   smsLog(pMac, LOGE, "Empty callback for eWNI_SME_SET_V6_MC_FILTER ");
-                }
-                break;
-          // IKJB42MAIN-1244, Motorola, a19091 - END
 #endif // WLAN_FEATURE_PACKET_FILTERING
           case eWNI_SME_PRE_SWITCH_CHL_IND:
              {
@@ -7057,7 +6938,6 @@ VOS_STATUS sme_DbgWriteMemory(tHalHandle hHal, v_U32_t memAddr, v_U8_t *pBuf, v_
 }
 
 
-#ifdef WLAN_DEBUG
 void pmcLog(tpAniSirGlobal pMac, tANI_U32 loglevel, const char *pString, ...)
 {
     VOS_TRACE_LEVEL  vosDebugLevel;
@@ -7078,6 +6958,7 @@ void pmcLog(tpAniSirGlobal pMac, tANI_U32 loglevel, const char *pString, ...)
 
 void smsLog(tpAniSirGlobal pMac, tANI_U32 loglevel, const char *pString,...)
 {
+#ifdef WLAN_DEBUG
     // Verify against current log level
     if ( loglevel > pMac->utils.gLogDbgLevel[LOG_INDEX_FOR_MODULE( SIR_SMS_MODULE_ID )] )
         return;
@@ -7091,8 +6972,8 @@ void smsLog(tpAniSirGlobal pMac, tANI_U32 loglevel, const char *pString,...)
 
         va_end( marker );              /* Reset variable arguments.      */
     }
-}
 #endif
+}
 
 /* ---------------------------------------------------------------------------
     \fn sme_GetWcnssWlanCompiledVersion
@@ -9577,39 +9458,6 @@ eHalStatus sme_8023MulticastList (tHalHandle hHal, tANI_U8 sessionId, tpSirRcvFl
     return eHAL_STATUS_SUCCESS;
 }
 
-// IKJB42MAIN-1244, Motorola, a19091 - BEGIN
-eHalStatus sme_ReceiveSetMcFilter(tSirInvokeV6Filter *filterConfig)
-{
-    vos_msg_t               msg;
-    tSirInvokeV6Filter      *passFilterConfig = kmalloc(sizeof(tSirInvokeV6Filter), GFP_ATOMIC);
-
-    if(passFilterConfig == NULL) {
-        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR, "%s: Not able to "
-            "allocate memory for Receive Filter Set Filter MC request", __func__);
-        return eHAL_STATUS_FAILED_ALLOC;
-    }
-
-    vos_mem_copy(passFilterConfig, filterConfig, sizeof(tSirInvokeV6Filter));
-
-    msg.type = eWNI_SME_SET_V6_MC_FILTER;
-    msg.reserved = 0;
-    msg.bodyptr = passFilterConfig;
-
-    VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_INFO,
-            " MC set rcieved .. post for processing!");
-
-    if(VOS_STATUS_SUCCESS != vos_mq_post_message(VOS_MQ_ID_SME, &msg))
-    {
-        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR, "%s: Not able to post "
-            "WDA_RECEIVE_FILTER_SET_FILTER_MC_REQ message to WDA", __func__);
-        kfree(passFilterConfig);
-        return eHAL_STATUS_FAILURE;
-    }
-
-    return eHAL_STATUS_SUCCESS;
-}
-// IKJB42MAIN-1244, Motorola, a19091 - END
-
 eHalStatus sme_ReceiveFilterSetFilter(tHalHandle hHal, tpSirRcvPktFilterCfgType pRcvPktFilterCfg,
                                            tANI_U8 sessionId)
 {
@@ -10216,19 +10064,22 @@ eHalStatus sme_SetTmLevel(tHalHandle hHal, v_U16_t newTMLevel, v_U16_t tmMode)
     return(status);
 }
 
-VOS_STATUS
-sme_featureCapsExchange(struct sir_feature_caps_params *params)
+/*---------------------------------------------------------------------------
+
+  \brief sme_featureCapsExchange() - SME interface to exchange capabilities between
+  Host and FW.
+
+  \param  hHal - HAL handle for device
+
+  \return NONE
+
+---------------------------------------------------------------------------*/
+void sme_featureCapsExchange( tHalHandle hHal)
 {
-	VOS_STATUS status;
-	v_CONTEXT_t vosContext = vos_get_global_context(VOS_MODULE_ID_SME,
-							NULL);
-
-	MTRACE(vos_trace(VOS_MODULE_ID_SME,
-	       TRACE_CODE_SME_RX_HDD_CAPS_EXCH, NO_SESSION, 0));
-
-	status = WDA_featureCapsExchange(vosContext, params);
-
-	return status;
+    v_CONTEXT_t vosContext = vos_get_global_context(VOS_MODULE_ID_SME, NULL);
+    MTRACE(vos_trace(VOS_MODULE_ID_SME,
+                     TRACE_CODE_SME_RX_HDD_CAPS_EXCH, NO_SESSION, 0));
+    WDA_featureCapsExchange(vosContext);
 }
 
 /*---------------------------------------------------------------------------
@@ -12951,7 +12802,7 @@ void activeListCmdTimeoutHandle(void *userData)
        if (!(vos_isLoadUnloadInProgress() ||
            vos_is_logp_in_progress(VOS_MODULE_ID_SME, NULL)))
        {
-          vos_wlanRestart(VOS_ACTIVE_LIST_TIMEOUT);
+          vos_wlanRestart();
        }
     }
 }
@@ -13340,8 +13191,7 @@ tANI_BOOLEAN  sme_Is11dCountrycode(tHalHandle hHal)
     }
 }
 
-eHalStatus
-sme_SpoofMacAddrReq(tHalHandle hHal, v_MACADDR_t *macaddr, bool spoof_mac_oui)
+eHalStatus sme_SpoofMacAddrReq(tHalHandle hHal, v_MACADDR_t *macaddr)
 {
    tpAniSirGlobal pMac = PMAC_STRUCT(hHal);
    eHalStatus status = eHAL_STATUS_SUCCESS;
@@ -13358,8 +13208,6 @@ sme_SpoofMacAddrReq(tHalHandle hHal, v_MACADDR_t *macaddr, bool spoof_mac_oui)
                                                     sizeof(tSirSpoofMacAddrReq), 0);
            vos_mem_copy(pMacSpoofCmd->u.macAddrSpoofCmd.macAddr,
                                                macaddr->bytes, VOS_MAC_ADDRESS_LEN);
-
-           pMacSpoofCmd->u.macAddrSpoofCmd.spoof_mac_oui = spoof_mac_oui;
 
            status = csrQueueSmeCommand(pMac, pMacSpoofCmd, false);
            if ( !HAL_STATUS_SUCCESS( status ) )
@@ -14381,7 +14229,7 @@ tANI_BOOLEAN sme_handleSetFccChannel(tHalHandle hHal, tANI_U8 fcc_constraint,
             pMac->scan.defer_update_channel_list = true;
         } else {
             /* update the channel list to the firmware */
-            csrUpdateFCCChannelList(pMac);
+            csrUpdateChannelList(pMac);
         }
     }
 
@@ -15341,7 +15189,7 @@ VOS_STATUS sme_roam_csa_ie_request(tHalHandle hal, tCsrBssid bssid,
    if (VOS_IS_STATUS_SUCCESS(status)) {
        if (CSR_IS_CHANNEL_5GHZ(new_chan)) {
            sme_SelectCBMode(hal, phy_mode, new_chan,
-                            eHT_MAX_CHANNEL_WIDTH);
+                            session->bssParams.orig_ch_width);
            cb_mode = mac_ctx->roam.configParam.channelBondingMode5GHz;
        }
        status = csr_roam_send_chan_sw_ie_request(mac_ctx, bssid,
@@ -15372,7 +15220,7 @@ VOS_STATUS sme_roam_channel_change_req(tHalHandle hal, tCsrBssid bssid,
    if (VOS_IS_STATUS_SUCCESS(status)) {
        if (CSR_IS_CHANNEL_5GHZ(new_chan)) {
            sme_SelectCBMode(hal, profile->phyMode, new_chan,
-                            eHT_MAX_CHANNEL_WIDTH);
+                            session->bssParams.orig_ch_width);
            cb_mode = mac_ctx->roam.configParam.channelBondingMode5GHz;
        }
        status = csr_roam_channel_change_req(mac_ctx, bssid, new_chan, cb_mode,
@@ -15394,47 +15242,4 @@ sme_get_connect_strt_time(tHalHandle hal, uint8_t session_id)
    }
    session = CSR_GET_SESSION(mac_ctx, session_id);
    return session->connect_req_start_time;
-}
-
-void sme_request_imps(tHalHandle hal)
-{
-   tpAniSirGlobal mac_ctx = PMAC_STRUCT(hal);
-
-   csrScanStartIdleScan(mac_ctx);
-}
-
-bool sme_is_sta_key_exchange_in_progress(tHalHandle hal, uint8_t session_id)
-{
-    tpAniSirGlobal mac_ctx = PMAC_STRUCT(hal);
-
-    if (!CSR_IS_SESSION_VALID(mac_ctx, session_id)) {
-        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
-                  FL("Invalid session %d"), session_id);
-        return false;
-    }
-
-    return CSR_IS_WAIT_FOR_KEY(mac_ctx, session_id);
-}
-
-VOS_STATUS sme_process_msg_callback(tHalHandle hal, vos_msg_t *msg)
-{
-   tpAniSirGlobal mac_ctx = PMAC_STRUCT(hal);
-   VOS_STATUS status = VOS_STATUS_E_FAILURE;
-
-   if (msg == NULL) {
-       smsLog(mac_ctx, LOGE, FL("Empty message for SME Msg callback"));
-       return status;
-   }
-   status = sme_ProcessMsg(hal, msg);
-
-   return status;
-}
-
-uint32_t sme_unpack_rsn_ie(tHalHandle hal, uint8_t *buf,
-                           uint8_t buf_len,
-                           tDot11fIERSN *rsn_ie)
-{
-         tpAniSirGlobal mac_ctx = PMAC_STRUCT(hal);
-
-         return dot11fUnpackIeRSN(mac_ctx, buf, buf_len, rsn_ie);
 }

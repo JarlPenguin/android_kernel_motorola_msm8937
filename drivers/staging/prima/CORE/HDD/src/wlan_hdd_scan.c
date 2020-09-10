@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -214,7 +214,6 @@ static eHalStatus hdd_IndicateScanResult(hdd_scan_info_t *scanInfo, tCsrScanResu
    int error;
    char custom[MAX_CUSTOM_LEN];
    char *p;
-   tANI_U32 status;
 
    hddLog( LOG1, "hdd_IndicateScanResult " MAC_ADDRESS_STR,
           MAC_ADDR_ARRAY(descriptor->bssId));
@@ -343,15 +342,8 @@ static eHalStatus hdd_IndicateScanResult(hdd_scan_info_t *scanInfo, tCsrScanResu
 
        pDot11IEHTCaps = NULL;
 
-       status = dot11fUnpackBeaconIEs ((tpAniSirGlobal)
+       dot11fUnpackBeaconIEs ((tpAniSirGlobal)
            hHal, (tANI_U8 *) descriptor->ieFields, ie_length,  &dot11BeaconIEs);
-       if (DOT11F_FAILED(status))
-       {
-           hddLog(LOGE,
-                  FL("unpack failed for Beacon IE status:(0x%08x)"),
-                  status);
-           return -EINVAL;
-       }
 
        pDot11SSID = &dot11BeaconIEs.SSID;
 
@@ -582,7 +574,7 @@ void __hdd_processSpoofMacAddrRequest(struct work_struct *work)
         hddLog(LOG1, FL("Processing Spoof request now"));
         /* Inform SME about spoof mac addr request*/
         if ( eHAL_STATUS_SUCCESS != sme_SpoofMacAddrReq(pHddCtx->hHal,
-                &pHddCtx->spoofMacAddr.randomMacAddr, true))
+                &pHddCtx->spoofMacAddr.randomMacAddr))
         {
             hddLog(LOGE, FL("Sending Spoof request failed - Disable spoofing"));
             pHddCtx->spoofMacAddr.isEnabled = FALSE;
